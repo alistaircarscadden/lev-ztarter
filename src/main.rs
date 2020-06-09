@@ -1,14 +1,92 @@
 use bincode;
 use clap::{crate_authors, crate_version, App, ArgGroup};
-use elma::lev::{Level, Polygon, Top10Save};
-use elma::Position;
+use elma::{
+    lev::{Level, Polygon, Top10Save},
+    Position,
+};
 use rand::{thread_rng, Rng};
 use rand_distr::Normal;
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::fs::{read_dir, File, ReadDir};
-use std::io::{BufReader, BufWriter};
-use std::path::Path;
+use serde::{
+    de::{Deserializer, Visitor},
+    ser::Serializer,
+    Deserialize, Serialize,
+};
+use std::{
+    collections::HashSet,
+    ffi::OsStr,
+    fmt::{Display, Formatter},
+    fs::{read_dir, File},
+    io::{BufReader, BufWriter},
+    path::Path,
+    str::from_utf8,
+};
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+struct LevelFileName {
+    data: [u8; 12],
+    len: usize,
+}
+impl LevelFileName {
+    fn from_str(file_name: &str) -> Self {
+        let copy_len;
+        Self {
+            data: {
+                let mut data = [0u8; 12];
+                let bytes = file_name.as_bytes();
+                copy_len = std::cmp::min(12, bytes.len());
+                data[..copy_len].copy_from_slice(&bytes[..copy_len]);
+                data
+            },
+            len: copy_len,
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        from_utf8(&self.data[..self.len]).unwrap()
+    }
+
+    fn from_osstr(file_name: &OsStr) -> Self {
+        Self::from_str(file_name.to_str().unwrap())
+    }
+}
+impl Display for LevelFileName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::as_str(self))
+    }
+}
+impl Serialize for LevelFileName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+impl<'de> Deserialize<'de> for LevelFileName {
+    fn deserialize<D>(deserializer: D) -> Result<LevelFileName, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct LevelFileNameVisitor;
+
+        impl<'de> Visitor<'de> for LevelFileNameVisitor {
+            type Value = LevelFileName;
+
+            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                formatter.write_str("a string that can be converted to [u8; 12]")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(LevelFileName::from_str(value))
+            }
+        }
+
+        deserializer.deserialize_bytes(LevelFileNameVisitor)
+    }
+}
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 struct SerVertex {
@@ -125,88 +203,74 @@ impl SerPolygon {
 
 #[derive(Serialize, Deserialize)]
 struct SerPolygonOwner {
-    file_name: String,
+    file_name: LevelFileName,
     polygon: SerPolygon,
 }
+
 impl SerPolygonOwner {
-    fn from_serlevel(serlevel: &SerLevel) -> Vec<SerPolygonOwner> {
-        let mut spo_vec = Vec::<SerPolygonOwner>::new();
-        for polygon in &serlevel.polygons {
-            spo_vec.push(SerPolygonOwner {
-                file_name: serlevel.file_name.to_owned(),
-                polygon: polygon.clone(),
-            });
-        }
-        spo_vec
-    }
-}
+    fn from_level_path(path: &Path) -> Result<Vec<SerPolygonOwner>, ()> {
+        if let Ok(lev) = Level::load(path) {
+            let mut polygons: Vec<SerPolygonOwner> = Vec::new();
+            for polygon in lev.polygons {
+                polygons.push({
+                    SerPolygonOwner {
+                        file_name: LevelFileName::from_osstr(path.file_name().unwrap()),
+                        polygon: {
+                            let mut serp = SerPolygon::from_polygon(&polygon.vertices);
+                            serp.normalize();
+                            serp
+                        },
+                    }
+                });
+            }
 
-#[derive(Serialize, Deserialize)]
-struct SerLevel {
-    file_name: String,
-    level_title: String,
-    polygons: Vec<SerPolygon>,
-}
-impl SerLevel {
-    fn from_file(path: &str) -> Option<SerLevel> {
-        let load = Level::load(path);
-
-        match &load {
-            Ok(level) => Some(SerLevel {
-                file_name: Path::new(&path)
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_owned(),
-                level_title: level.title.to_owned(),
-                polygons: SerPolygon::from_lev(&level),
-            }),
-            Err(_) => None,
+            Ok(polygons)
+        } else {
+            Err(())
         }
     }
 }
 
 struct GeneratedLevel {
     level: Level,
-    source_levels: Vec<String>,
+    source_levels: Vec<LevelFileName>,
 }
 impl GeneratedLevel {
-    fn new() -> GeneratedLevel {
-        GeneratedLevel {
-            level: {
-                let mut l = Level::new();
-                l.polygons.pop();
-                l
-            },
-            source_levels: Vec::new(),
-        }
+    fn empty_level() -> Level {
+        let mut l = Level::new();
+        l.polygons.pop();
+        l
     }
 
     fn generate(db: &Db) -> GeneratedLevel {
-        let mut genlev = GeneratedLevel::new();
+        let mut genlev = GeneratedLevel {
+            level: Self::empty_level(),
+            source_levels: Vec::new(),
+        };
+
         let n_polygons: usize = Self::rand_number_of_polygons();
         let mut x = 0.0;
 
         // Add one big polygon to the level
         let p = &db.polygons[Self::rand_big_polygon(db.polygons.len())];
-        genlev.push_polygon(&p, x);
+        genlev
+            .level
+            .polygons
+            .push(p.polygon.to_polygon_translate(x, 0.0));
+        genlev.source_levels.push(p.file_name);
 
         // Add a bunch of polygons to the level
         for _ in 1..n_polygons {
             let p = &db.polygons[Self::rand_polygon(db.polygons.len())];
-            genlev.push_polygon(&p, x);
+            genlev
+                .level
+                .polygons
+                .push(p.polygon.to_polygon_translate(x, 0.0));
+            genlev.source_levels.push(p.file_name);
             x += p.polygon.width;
         }
 
         genlev
-    }
-
-    fn push_polygon(&mut self, poly: &SerPolygonOwner, x: f64) {
-        self.level
-            .polygons
-            .push(poly.polygon.to_polygon_translate(x, 0.0));
-        self.source_levels.push(poly.file_name.to_owned());
     }
 
     fn write(&mut self, to: &str) -> std::result::Result<(), ()> {
@@ -267,22 +331,25 @@ impl GeneratedLevel {
 #[derive(Serialize, Deserialize)]
 struct Db {
     polygons: Vec<SerPolygonOwner>,
-    levels: Vec<String>,
+    levels: HashSet<LevelFileName>,
     tag: Option<String>,
 }
 impl Db {
     fn new() -> Db {
         Db {
             polygons: Vec::new(),
-            levels: Vec::new(),
+            levels: HashSet::new(),
             tag: None,
         }
     }
 
-    fn load_database(db_path: &str) -> Db {
-        let f = File::open(db_path).unwrap();
+    fn load_database(db_path: &str) -> std::io::Result<Db> {
+        let f = File::open(db_path)?;
         let r = BufReader::new(f);
-        bincode::deserialize_from::<BufReader<File>, Db>(r).unwrap()
+        match bincode::deserialize_from::<BufReader<File>, Db>(r) {
+            Ok(db) => Ok(db),
+            Err(_) => std::io::Result::Err(std::io::Error::from(std::io::ErrorKind::InvalidData)),
+        }
     }
 
     fn write_database(&self, db_path: &str) -> std::result::Result<(), ()> {
@@ -294,33 +361,29 @@ impl Db {
         }
     }
 
-    fn from_directory(dir_path: &str) -> Db {
-        let readdir: ReadDir = read_dir(dir_path).unwrap();
-        let mut polygons: Vec<SerPolygonOwner> = Vec::new();
-        let mut levels: Vec<String> = Vec::new();
-        let mut failed_levs: Vec<String> = Vec::new();
+    fn from_directory(dir_path: &str) -> std::io::Result<Db> {
+        let mut failed_levs: Vec<LevelFileName> = Vec::new();
         let mut n_failed = 0;
         let mut n_polygons = 0;
 
+        let mut database = Db::new();
+
         println!("\nLOADED      FAILED      POLYGONS");
 
-        for (i, de) in readdir.enumerate() {
+        for (i, de) in read_dir(dir_path)?.enumerate() {
             let entry = de.unwrap();
             let path = entry.path();
             if match path.extension() {
                 Some(ext) => ext == "lev",
                 None => false,
             } {
-                let full_path = path.to_str().unwrap();
-                let file_name = path.file_name().unwrap().to_str().unwrap();
-
-                if let Some(level) = SerLevel::from_file(full_path) {
-                    let mut new_polygons = SerPolygonOwner::from_serlevel(&level);
-                    polygons.append(&mut new_polygons);
-                    levels.push(file_name.to_owned());
-                    n_polygons = polygons.len();
+                let level_file_name = LevelFileName::from_osstr((&*path).file_name().unwrap());
+                if let Ok(mut new_polygons) = SerPolygonOwner::from_level_path(&*path) {
+                    database.polygons.append(&mut new_polygons);
+                    database.levels.insert(level_file_name);
+                    n_polygons = database.polygons.len();
                 } else {
-                    failed_levs.push(file_name.to_owned());
+                    failed_levs.push(level_file_name);
                     n_failed += 1;
                 }
                 print!("\r{:6}      {:6}      {:8}", i, n_failed, n_polygons);
@@ -337,15 +400,11 @@ impl Db {
         }
         print! {"\n"};
 
-        Db {
-            polygons,
-            levels,
-            tag: None,
-        }
+        Ok(database)
     }
 
     fn combine(&mut self, other: &mut Db) {
-        let mut new_levels: HashSet<String> = HashSet::new();
+        let mut new_levels: HashSet<LevelFileName> = HashSet::new();
 
         while let Some(polygon) = other.polygons.pop() {
             if !self.levels.contains(&polygon.file_name) {
@@ -360,7 +419,7 @@ impl Db {
         }
 
         for new_level in new_levels {
-            self.levels.push(new_level);
+            self.levels.insert(new_level);
         }
     }
 }
@@ -396,29 +455,31 @@ fn main() {
 
     // Load database(s) or directory into a database
 
-    if matches.is_present("from-database") {
-        let dbp = matches.value_of("from-database").unwrap();
+    if let Some(dbp) = matches.value_of("from-database") {
         database_paths.push(dbp);
-    } else if matches.is_present("from-databases") {
-        for dbp in matches.value_of("from-databases").unwrap().split(",") {
+    } else if let Some(paths) = matches.value_of("from-databases") {
+        for dbp in paths.split(",") {
             database_paths.push(dbp);
         }
-    } else if matches.is_present("from-directory") {
-        let dirp = matches.value_of("from-directory").unwrap();
-        println!("Loading all levels from {}.", dirp);
-        let mut db = Db::from_directory(dirp);
-        database.combine(&mut db);
     }
-
-    for dbp in database_paths {
-        print!("Loading database from {}...", dbp);
-        let mut db = Db::load_database(dbp);
-        if let Some(s) = &db.tag {
-            println!(" loaded {}", s);
-        } else {
-            println!(" loaded untagged database")
-        }
+    if let Some(dirp) = matches.value_of("from-directory") {
+        println!("Loading all levels from {}.", dirp);
+        let mut db = Db::from_directory(dirp).unwrap();
         database.combine(&mut db);
+    } else {
+        for dbp in database_paths {
+            print!("Loading database from {}...", dbp);
+            if let Ok(mut db) = Db::load_database(dbp) {
+                if let Some(s) = &db.tag {
+                    println!(" loaded {}", s);
+                } else {
+                    println!(" loaded untagged database")
+                }
+                database.combine(&mut db);
+            } else {
+                continue;
+            }
+        }
     }
 
     // Sort database by polygon bounds areas
