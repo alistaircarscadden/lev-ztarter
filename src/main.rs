@@ -32,6 +32,7 @@ fn main() {
             "from-databases",
         ]))
         .get_matches();
+    // TODO ifs
 
     let mut database_paths = Vec::<&str>::new();
     let mut database = Db::new();

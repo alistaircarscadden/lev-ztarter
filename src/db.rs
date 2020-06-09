@@ -1,7 +1,4 @@
-use crate::{
-    lfn::LevelFileName,
-    se::{SerPolygon, SerPolygonOwner, SerVertex},
-};
+use crate::{lfn::LevelFileName, se::SerPolygonOwner};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -59,7 +56,8 @@ impl Db {
                 Some(ext) => ext == "lev",
                 None => false,
             } {
-                let level_file_name = LevelFileName::from_osstr((&*path).file_name().unwrap());
+                let level_file_name =
+                    LevelFileName::from(&*path.file_name().unwrap().to_str().unwrap()).unwrap();
                 if let Ok(mut new_polygons) = SerPolygonOwner::from_level_path(&*path) {
                     database.polygons.append(&mut new_polygons);
                     database.levels.insert(level_file_name);

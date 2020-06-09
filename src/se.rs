@@ -19,16 +19,16 @@ pub struct SerPolygon {
     pub height: f64,
 }
 
-impl SerVertex {
-    pub fn to_vertex_translate(&self, x: f64, y: f64) -> Position<f64> {
-        Position::new(self.x + x, self.y + y)
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct SerPolygonOwner {
     pub file_name: LevelFileName,
     pub polygon: SerPolygon,
+}
+
+impl SerVertex {
+    pub fn to_vertex_translate(&self, x: f64, y: f64) -> Position<f64> {
+        Position::new(self.x + x, self.y + y)
+    }
 }
 
 impl SerPolygon {
@@ -98,15 +98,14 @@ impl SerPolygonOwner {
         if let Ok(lev) = Level::load(path) {
             let mut polygons: Vec<SerPolygonOwner> = Vec::new();
             for polygon in lev.polygons {
-                polygons.push({
-                    SerPolygonOwner {
-                        file_name: LevelFileName::from_osstr(path.file_name().unwrap()),
-                        polygon: {
-                            let mut serp = SerPolygon::from_polygon(&polygon.vertices);
-                            serp.normalize();
-                            serp
-                        },
-                    }
+                polygons.push(SerPolygonOwner {
+                    file_name: LevelFileName::from(path.file_name().unwrap().to_str().unwrap())
+                        .unwrap(),
+                    polygon: {
+                        let mut serp = SerPolygon::from_polygon(&polygon.vertices);
+                        serp.normalize();
+                        serp
+                    },
                 });
             }
 
