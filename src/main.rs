@@ -8,35 +8,90 @@ use crate::{
     gen::GeneratedLevel,
     lfn::{FmtLevelFileName, LevelFileName},
 };
-use clap::{crate_authors, crate_version, App, ArgGroup};
+use clap::{crate_authors, crate_version, App, Arg, ArgGroup};
 use std::path::Path;
 
 fn main() {
     let matches = App::new("lev-ztarter")
         .version(crate_version!())
         .author(crate_authors!())
-        .args_from_usage(
-            "
-            [from-directory]      --from-directory      [dir]       'load levs from a directory'
-            [from-database]       --from-database       [file]      'load levs from a database'
-            [from-databases]      --from-databases      [files]     'load levs from multiple databases'
-            [to-database]         --to-database         [out]       'write database'
-            [tag-database]        --tag-database        [tag]       'tag the database that is being written'
-            [generate]            --generate                        'generate levels using loaded database(s)'
-            [generate-directory]  --generate-directory  [dir]       'generate levels to this directory'
-            [level-name]          --level-name          [name]      'name of the level (e.g. for abc123 put abc)'
-            [level-name-pad]      --level-name-pad      [num]       'number of padding zeros (e.g. for abc001 put 3)'
-            [level-number-offset] --level-number-offset [num]       'start numbering levels at this number'
-            [level-amount]        --level-amount        [num]       'amount of levels to generate'
-            ",
-        )
+        .args(&[
+            Arg::with_name("from-directory")
+                .short("d")
+                .long("from-directory")
+                .value_name("dir")
+                .takes_value(true)
+                .help("load levs from a directory"),
+            Arg::with_name("from-database")
+                .short("r")
+                .long("from-database")
+                .value_name("file")
+                .takes_value(true)
+                .help("load levs from a database"),
+            Arg::with_name("from-databases")
+                .short("R")
+                .long("from-databases")
+                .value_name("files")
+                .takes_value(true)
+                .help("load levs from multiple databases"),
+            Arg::with_name("to-database")
+                .short("w")
+                .long("to-database")
+                .value_name("file")
+                .takes_value(true)
+                .help("write database"),
+            Arg::with_name("tag-database")
+                .long("tag-database")
+                .value_name("tag")
+                .takes_value(true)
+                .help("tag the database that is being written")
+                .requires("to-database"),
+            Arg::with_name("generate")
+                .short("g")
+                .long("generate")
+                .help("generate levels using loaded database(s)"),
+            Arg::with_name("generate-directory")
+                .short("o")
+                .long("generate-directory")
+                .value_name("dir")
+                .takes_value(true)
+                .help("generate levels to this directory")
+                .requires("generate"),
+            Arg::with_name("level-name")
+                .short("n")
+                .long("level-name")
+                .value_name("name")
+                .takes_value(true)
+                .help("name of the level (e.g. for abc123 put abc)")
+                .requires("generate"),
+            Arg::with_name("level-name-pad")
+                .short("p")
+                .long("level-name-pad")
+                .value_name("num")
+                .takes_value(true)
+                .help("number of padding zeros (e.g. for abc001 put 3)")
+                .requires("generate"),
+            Arg::with_name("level-number-offset")
+                .short("O")
+                .long("level-number-offset")
+                .value_name("num")
+                .takes_value(true)
+                .help("start numbering levels at this number")
+                .requires("generate"),
+            Arg::with_name("level-amount")
+                .short("N")
+                .long("level-amount")
+                .value_name("num")
+                .takes_value(true)
+                .help("amount of levels to generate")
+                .requires("generate"),
+        ])
         .group(ArgGroup::with_name("input").args(&[
             "from-directory",
             "from-database",
             "from-databases",
         ]))
         .get_matches();
-    // TODO ifs
 
     let mut database_paths = Vec::<&str>::new();
     let mut database = Db::new();
