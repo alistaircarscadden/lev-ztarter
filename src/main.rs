@@ -3,7 +3,11 @@ mod gen;
 mod lfn;
 mod se;
 
-use crate::{db::Db, gen::GeneratedLevel, lfn::LevelFileName};
+use crate::{
+    db::Db,
+    gen::GeneratedLevel,
+    lfn::{FmtLevelFileName, LevelFileName},
+};
 use clap::{crate_authors, crate_version, App, ArgGroup};
 use std::path::Path;
 
@@ -148,11 +152,8 @@ fn main() {
             println!("Generating levels:");
             for i in 0..level_amount {
                 let fp = Path::new(generate_directory).join(Path::new(
-                    &LevelFileName::fmt_level_name_string(
-                        level_name,
-                        level_name_pad,
-                        i + level_number_offset,
-                    ),
+                    LevelFileName::from_fmt(level_name, level_name_pad, i + level_number_offset)
+                        .as_str(),
                 ));
                 let mut generated_level = GeneratedLevel::generate(&database);
                 generated_level.write(fp.to_str().unwrap()).unwrap();
