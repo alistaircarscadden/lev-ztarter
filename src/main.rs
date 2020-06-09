@@ -15,6 +15,7 @@ fn main() {
     let matches = App::new("lev-ztarter")
         .version(crate_version!())
         .author(crate_authors!())
+        .about("Generate ztarter levs fr elma")
         .args(&[
             Arg::with_name("from-directory")
                 .short("d")
