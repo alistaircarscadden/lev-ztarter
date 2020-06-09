@@ -94,17 +94,6 @@ struct SerVertex {
     y: f64,
 }
 impl SerVertex {
-    fn from_vertex(vertex: &Position<f64>) -> SerVertex {
-        SerVertex {
-            x: vertex.x,
-            y: vertex.y,
-        }
-    }
-
-    fn to_vertex(&self) -> Position<f64> {
-        Position::new(self.x, self.y)
-    }
-
     fn to_vertex_translate(&self, x: f64, y: f64) -> Position<f64> {
         Position::new(self.x + x, self.y + y)
     }
@@ -168,17 +157,6 @@ impl SerPolygon {
         }
     }
 
-    fn translate(&mut self, x: f64, y: f64) {
-        for i in 0..self.verteces.len() {
-            self.verteces[i].x += x;
-            self.verteces[i].y += y;
-        }
-    }
-
-    fn to_polygon(&self) -> Polygon {
-        self.to_polygon_translate(0.0, 0.0)
-    }
-
     fn to_polygon_translate(&self, x: f64, y: f64) -> Polygon {
         let mut polygon = Polygon::new();
         polygon.vertices = Vec::<Position<f64>>::new();
@@ -186,18 +164,6 @@ impl SerPolygon {
             polygon.vertices.push(vertex.to_vertex_translate(x, y));
         }
         polygon
-    }
-
-    fn from_lev(level: &Level) -> Vec<SerPolygon> {
-        let mut polygons = Vec::<SerPolygon>::new();
-        for polygon in &level.polygons {
-            if !polygon.grass {
-                let mut sp = SerPolygon::from_polygon(&polygon.vertices);
-                sp.normalize();
-                polygons.push(sp);
-            }
-        }
-        polygons
     }
 }
 
